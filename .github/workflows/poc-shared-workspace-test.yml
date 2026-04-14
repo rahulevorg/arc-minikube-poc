@@ -1,0 +1,43 @@
+name: POC - Shared Workspace Test
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  shared-workspace-test:
+    runs-on: minikube-dind
+    steps:
+      - name: Show existing shared workspace state (from previous runs)
+        run: |
+          echo "=== Contents of /shared from previous runs ==="
+          ls -la /shared/ || echo "(empty - first run)"
+          echo ""
+          echo "=== Run log history ==="
+          cat /shared/run-log.txt 2>/dev/null || echo "(no history yet)"
+
+      - name: Write this run's identity to shared workspace
+        run: |
+          echo "Run #${{ github.run_number }} | ID: ${{ github.run_id }} | SHA: ${{ github.sha }} | Time: $(date -u)" >> /shared/run-log.txt
+          echo "Last writer: run #${{ github.run_number }}" > /shared/last-run.txt
+
+      - name: Cache a dummy artifact in /shared (simulating dependency cache)
+        run: |
+          mkdir -p /shared/tool-cache
+          # Simulate caching a tool (e.g., a downloaded binary)
+          if [ ! -f /shared/tool-cache/example-tool ]; then
+            echo "Tool not cached. Downloading..."
+            echo "#!/bin/sh\necho 'hello from cached tool!'" > /shared/tool-cache/example-tool
+            chmod +x /shared/tool-cache/example-tool
+            echo "Download complete. Cached at /shared/tool-cache/example-tool"
+          else
+            echo "Tool already cached! Skipping download."
+            /shared/tool-cache/example-tool
+          fi
+
+      - name: Final state of shared workspace
+        run: |
+          echo "=== Final /shared contents ==="
+          find /shared -type f | sort
+          echo ""
+          echo "=== Full run log ==="
+          cat /shared/run-log.txt
