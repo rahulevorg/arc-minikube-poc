@@ -16,26 +16,39 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Login to Docker Hub
-        # Uses the repository secrets we just populated
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      - name: Build Docker image
+      - name: Build Docker image (with shared /shared docker build cache)
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} ./frontend
-          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest
+          mkdir -p /shared/docker-buildcache
+          # --cache-from / --cache-to uses the shared PVC — survives across runs on same node
+          docker build \
+            --cache-from type=local,src=/shared/docker-buildcache \
+            --cache-to   type=local,dest=/shared/docker-buildcache,mode=max \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest \
+            ./frontend
 
       - name: Push to Docker Hub
         run: |
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest
 
-      - name: Deploy to Minikube Cluster
+      - name: Deploy to Minikube Cluster (kubectl cached in /shared)
         run: |
-          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          
-          # Replace image tag in manifest
+          # Use cached kubectl from /shared to skip downloading each run
+          if [ ! -f /shared/tool-cache/kubectl ]; then
+            echo "kubectl not cached — downloading..."
+            mkdir -p /shared/tool-cache
+            curl -sLo /shared/tool-cache/kubectl \
+              "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x /shared/tool-cache/kubectl
+            echo "kubectl cached at /shared/tool-cache/kubectl"
+          else
+            echo "kubectl found in shared cache — skipping download!"
+          fi
+
+          # Replace image tag in manifest and apply
           sed -i "s/IMAGE_TAG/${{ github.sha }}/g" frontend/k8s-manifest.yaml
-          
-          # Deploy
-          ./kubectl apply -f frontend/k8s-manifest.yaml
+          /shared/tool-cache/kubectl apply -f frontend/k8s-manifest.yaml
+
