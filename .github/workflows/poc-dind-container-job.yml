@@ -1,0 +1,15 @@
+name: POC - jobs.container on DinD runners
+on:
+  workflow_dispatch: {}
+
+jobs:
+  container_job:
+    runs-on: minikube-dind
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Basic container job proof
+        run: |
+          uname -a
+          cat /etc/os-release
+          echo "Container job ran successfully via DinD sidecar!"
