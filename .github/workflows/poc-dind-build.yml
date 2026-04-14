@@ -1,0 +1,31 @@
+name: POC - DinD build and push
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: minikube-dind
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show docker daemon
+        run: |
+          docker version
+          docker info
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+
+      - name: Build and push
+        run: |
+          # Use testing repository path
+          IMAGE="ghcr.io/rahulevorg/poc-image:${{ github.sha }}"
+          # A dummy dockerfile generation for quick demonstration
+          echo "FROM alpine:latest" > Dockerfile
+          echo "RUN echo 'Hello from DinD!' > /hello.txt" >> Dockerfile
+          docker build -t "${IMAGE}" .
+          docker push "${IMAGE}"
