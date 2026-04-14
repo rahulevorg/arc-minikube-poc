@@ -1,0 +1,30 @@
+name: Real-World Frontend - Build & Push (DockerHub)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+
+jobs:
+  build-and-push:
+    runs-on: minikube-dind
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        # Uses the repository secrets we just populated
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} ./frontend
+          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest
+
+      - name: Push to Docker Hub
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest
