@@ -18,7 +18,7 @@ env:
 jobs:
   # ── 1. PREPARE ────────────────────────────────────────────────────────────
   prepare:
-    runs-on: minikube-dind
+    runs-on: minikube-k8s
     steps:
       - name: Create shared workspace slice for this run
         run: |
@@ -39,7 +39,7 @@ jobs:
 
   # ── 2a. LINT (parallel with test) ─────────────────────────────────────────
   lint:
-    runs-on: minikube-dind
+    runs-on: minikube-k8s
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -58,7 +58,7 @@ jobs:
 
   # ── 2b. TEST (parallel with lint) ─────────────────────────────────────────
   test:
-    runs-on: minikube-dind
+    runs-on: minikube-k8s
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -74,7 +74,7 @@ jobs:
 
   # ── 3. BUILD (sequential after lint + test) ────────────────────────────────
   build:
-    runs-on: minikube-dind
+    runs-on: minikube-k8s
     needs: [lint, test]
     steps:
       - name: Verify results from parallel jobs
@@ -98,7 +98,7 @@ jobs:
 
   # ── 4. CLEANUP (always runs) ───────────────────────────────────────────────
   cleanup:
-    runs-on: minikube-dind
+    runs-on: minikube-k8s
     needs: [build]
     if: always()   # run even if build failed
     steps:
