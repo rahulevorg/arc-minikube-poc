@@ -28,3 +28,14 @@ jobs:
         run: |
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest
+
+      - name: Deploy to Minikube Cluster
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          
+          # Replace image tag in manifest
+          sed -i "s/IMAGE_TAG/${{ github.sha }}/g" frontend/k8s-manifest.yaml
+          
+          # Deploy
+          ./kubectl apply -f frontend/k8s-manifest.yaml
