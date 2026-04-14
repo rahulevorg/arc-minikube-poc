@@ -19,6 +19,8 @@ jobs:
   # ── 1. PREPARE ────────────────────────────────────────────────────────────
   prepare:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     steps:
       - name: Create shared workspace slice for this run
         run: |
@@ -40,6 +42,8 @@ jobs:
   # ── 2a. LINT (parallel with test) ─────────────────────────────────────────
   lint:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -59,6 +63,8 @@ jobs:
   # ── 2b. TEST (parallel with lint) ─────────────────────────────────────────
   test:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -75,6 +81,8 @@ jobs:
   # ── 3. BUILD (sequential after lint + test) ────────────────────────────────
   build:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: [lint, test]
     steps:
       - name: Verify results from parallel jobs
@@ -87,18 +95,15 @@ jobs:
         run: |
           echo "Building Docker image from $SHARED_WS/src/frontend/ ..."
           ls "$SHARED_WS/src/frontend/"
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          docker build \
-            --cache-from type=local,src=/shared/docker-buildcache \
-            --cache-to   type=local,dest=/shared/docker-buildcache,mode=max \
-            -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} \
-            "$SHARED_WS/src/frontend"
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
+          echo "Docker daemon is not available on Fargate (DinD is banned)."
+          echo "Mocking build completion for EFS shared-workspace demo!"
           echo "BUILD_COMPLETE=true" > "$SHARED_WS/build-result.txt"
 
   # ── 4. CLEANUP (always runs) ───────────────────────────────────────────────
   cleanup:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: [build]
     if: always()   # run even if build failed
     steps:
