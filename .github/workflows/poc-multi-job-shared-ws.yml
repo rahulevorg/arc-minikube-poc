@@ -1,0 +1,117 @@
+name: POC - Multi-Job Shared Workspace
+
+# STRATEGY: prepare → [parallel jobs] → cleanup
+#
+# All jobs share /shared/$GITHUB_RUN_ID/ on the RWX PVC mounted in every
+# runner pod.  The lifecycle is:
+#   1. prepare   — creates the run's slice, clones the repo into it
+#   2. lint/test — parallel jobs that read the shared checkout (no re-clone)
+#   3. build     — depends on lint+test, reads the same shared source
+#   4. cleanup   — always runs; removes the run's slice from /shared
+
+on:
+  workflow_dispatch: {}
+
+env:
+  SHARED_WS: /shared/${{ github.run_id }}   # each run gets its own dir
+
+jobs:
+  # ── 1. PREPARE ────────────────────────────────────────────────────────────
+  prepare:
+    runs-on: minikube-dind
+    steps:
+      - name: Create shared workspace slice for this run
+        run: |
+          mkdir -p "$SHARED_WS"
+          echo "Run #${{ github.run_number }} | ${{ github.sha }} | $(date -u)" \
+            > "$SHARED_WS/run-info.txt"
+          echo "Workspace created at $SHARED_WS"
+
+      - name: Checkout into shared workspace (single clone for all jobs)
+        uses: actions/checkout@v4
+        with:
+          path: ${{ env.SHARED_WS }}/src
+
+      - name: Verify shared workspace contents
+        run: |
+          echo "=== Shared workspace after checkout ==="
+          find "$SHARED_WS" -maxdepth 3 | head -40
+
+  # ── 2a. LINT (parallel with test) ─────────────────────────────────────────
+  lint:
+    runs-on: minikube-dind
+    needs: prepare
+    steps:
+      - name: Read shared workspace (no re-checkout needed)
+        run: |
+          echo "=== run-info.txt from prepare job ==="
+          cat "$SHARED_WS/run-info.txt"
+          echo "=== Files available from shared checkout ==="
+          ls "$SHARED_WS/src/"
+
+      - name: Simulate lint
+        run: |
+          echo "Running linter on shared source..."
+          # Write lint result into shared ws so 'build' can inspect it
+          echo "LINT_PASSED=true" > "$SHARED_WS/lint-result.txt"
+          echo "Lint complete."
+
+  # ── 2b. TEST (parallel with lint) ─────────────────────────────────────────
+  test:
+    runs-on: minikube-dind
+    needs: prepare
+    steps:
+      - name: Read shared workspace (no re-checkout needed)
+        run: |
+          echo "=== run-info.txt from prepare job ==="
+          cat "$SHARED_WS/run-info.txt"
+
+      - name: Simulate unit tests
+        run: |
+          echo "Running tests on shared source..."
+          echo "TEST_PASSED=true" > "$SHARED_WS/test-result.txt"
+          echo "Tests complete."
+
+  # ── 3. BUILD (sequential after lint + test) ────────────────────────────────
+  build:
+    runs-on: minikube-dind
+    needs: [lint, test]
+    steps:
+      - name: Verify results from parallel jobs
+        run: |
+          echo "=== Results written by parallel jobs ==="
+          cat "$SHARED_WS/lint-result.txt"
+          cat "$SHARED_WS/test-result.txt"
+
+      - name: Build frontend from shared source
+        run: |
+          echo "Building Docker image from $SHARED_WS/src/frontend/ ..."
+          ls "$SHARED_WS/src/frontend/"
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          docker build \
+            --cache-from type=local,src=/shared/docker-buildcache \
+            --cache-to   type=local,dest=/shared/docker-buildcache,mode=max \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} \
+            "$SHARED_WS/src/frontend"
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
+          echo "BUILD_COMPLETE=true" > "$SHARED_WS/build-result.txt"
+
+  # ── 4. CLEANUP (always runs) ───────────────────────────────────────────────
+  cleanup:
+    runs-on: minikube-dind
+    needs: [build]
+    if: always()   # run even if build failed
+    steps:
+      - name: Show full run workspace before cleanup
+        run: |
+          echo "=== Final state of $SHARED_WS ==="
+          find "$SHARED_WS" -type f | sort
+          echo ""
+          cat "$SHARED_WS/build-result.txt" 2>/dev/null || echo "(build did not complete)"
+
+      - name: Remove this run's workspace slice
+        run: |
+          rm -rf "$SHARED_WS"
+          echo "Cleaned up $SHARED_WS"
+          echo "=== Remaining /shared entries (other runs) ==="
+          ls /shared/ || echo "(shared volume empty)"
