@@ -1,0 +1,32 @@
+name: POC - Kubernetes mode with BuildKit build and push
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  buildkit_build:
+    runs-on: minikube-k8s
+    container:
+      image: moby/buildkit:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with buildctl (push + inline cache)
+        env:
+          DEST: ghcr.io/rahulevorg/poc-image:${{ github.sha }}
+          CACHE_REF: ghcr.io/rahulevorg/poc-image:buildcache
+        run: |
+          # A dummy dockerfile generation for quick demonstration
+          echo "FROM alpine:latest" > Dockerfile
+          echo "RUN echo 'Hello from BuildKit!' > /hello.txt" >> Dockerfile
+          
+          buildctl --addr tcp://buildkitd.arc-runners.svc.cluster.local:1234 build \
+            --frontend dockerfile.v0 \
+            --local context="${GITHUB_WORKSPACE}" \
+            --local dockerfile="${GITHUB_WORKSPACE}" \
+            --output type=image,name="${DEST}",push=true \
+            --export-cache type=inline \
+            --import-cache type=registry,ref="${CACHE_REF}"
