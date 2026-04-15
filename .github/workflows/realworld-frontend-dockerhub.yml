@@ -12,32 +12,34 @@ jobs:
   build-and-push:
     runs-on: minikube-k8s
     container:
-      image: moby/buildkit:latest
+      image: docker:27.1.2-cli
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure Docker Hub auth for BuildKit
-        run: |
-          mkdir -p "$HOME/.docker"
-          AUTH_B64=$(printf '%s' "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" | base64 | tr -d '\n')
-          cat > "$HOME/.docker/config.json" <<EOF
-          {
-            "auths": {
-              "https://index.docker.io/v1/": {
-                "auth": "${AUTH_B64}"
-              }
-            }
-          }
-          EOF
+      - name: Set up Docker Buildx (remote BuildKit)
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: remote
+          endpoint: tcp://buildkitd.arc-runners.svc.cluster.local:1234
 
-      - name: Build and push Docker image via BuildKit daemon
-        run: |
-          buildctl --addr tcp://buildkitd.arc-runners.svc.cluster.local:1234 build \
-            --frontend dockerfile.v0 \
-            --local context=frontend \
-            --local dockerfile=frontend \
-            --output type=image,name=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }},push=true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:buildcache,mode=max
 
   deploy-to-minikube:
     runs-on: minikube-k8s
