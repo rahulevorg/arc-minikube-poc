@@ -10,45 +10,40 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: minikube-dind
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build Docker image (with shared /shared docker build cache)
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest
+
+  deploy-to-minikube:
+    runs-on: minikube-k8s
+    needs: build-and-push
+    container:
+      image: bitnami/kubectl:latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Minikube Cluster
         run: |
-          mkdir -p /shared/docker-buildcache
-          # --cache-from / --cache-to uses the shared PVC — survives across runs on same node
-          docker build \
-            --cache-from type=local,src=/shared/docker-buildcache \
-            --cache-to   type=local,dest=/shared/docker-buildcache,mode=max \
-            -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }} \
-            -t ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest \
-            ./frontend
-
-      - name: Push to Docker Hub
-        run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest
-
-      - name: Deploy to Minikube Cluster (kubectl cached in /shared)
-        run: |
-          # Use cached kubectl from /shared to skip downloading each run
-          if [ ! -f /shared/tool-cache/kubectl ]; then
-            echo "kubectl not cached — downloading..."
-            mkdir -p /shared/tool-cache
-            curl -sLo /shared/tool-cache/kubectl \
-              "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-            chmod +x /shared/tool-cache/kubectl
-            echo "kubectl cached at /shared/tool-cache/kubectl"
-          else
-            echo "kubectl found in shared cache — skipping download!"
-          fi
-
-          # Replace image tag in manifest and apply
-          sed -i "s/IMAGE_TAG/${{ github.sha }}/g" frontend/k8s-manifest.yaml
-          /shared/tool-cache/kubectl apply -f frontend/k8s-manifest.yaml
+          sed -i "s#image: .*#image: ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}#" frontend/k8s-manifest.yaml
+          kubectl apply -f frontend/k8s-manifest.yaml
 
