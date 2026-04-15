@@ -1,26 +1,24 @@
 name: POC - Multi-Job Shared Workspace
 
-# STRATEGY: prepare → [parallel jobs] → cleanup
+# STRATEGY: prepare â†’ [parallel jobs] â†’ cleanup
 #
-# All jobs share /shared/$GITHUB_RUN_ID/ on the RWX PVC mounted in every
+# All jobs share /app/workspace/$GITHUB_RUN_ID/ on the RWX PVC mounted in every
 # runner pod.  The lifecycle is:
-#   1. prepare   — creates the run's slice, clones the repo into it
-#   2. lint/test — parallel jobs that read the shared checkout (no re-clone)
-#   3. build     — depends on lint+test, reads the same shared source
-#   4. cleanup   — always runs; removes the run's slice from /shared
+#   1. prepare   â€” creates the run's slice, clones the repo into it
+#   2. lint/test â€” parallel jobs that read the shared checkout (no re-clone)
+#   3. build     â€” depends on lint+test, reads the same shared source
+#   4. cleanup   â€” always runs; removes the run's slice from /app/workspace
 
 on:
   workflow_dispatch: {}
 
 env:
-  SHARED_WS: /shared/${{ github.run_id }}   # each run gets its own dir
+  SHARED_WS: /app/workspace/${{ github.run_id }}   # each run gets its own dir
 
 jobs:
-  # ── 1. PREPARE ────────────────────────────────────────────────────────────
+  # â”€â”€ 1. PREPARE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   prepare:
     runs-on: minikube-k8s
-    container:
-      image: node:20-bullseye
     steps:
       - name: Create shared workspace slice for this run
         run: |
@@ -29,26 +27,20 @@ jobs:
             > "$SHARED_WS/run-info.txt"
           echo "Workspace created at $SHARED_WS"
 
-      - name: Checkout into runner workspace
-        uses: actions/checkout@v4
-        with:
-          path: src
-
-      - name: Copy checkout into shared workspace slice
+      - name: Clone repository directly into shared workspace slice
         run: |
-          mkdir -p "$SHARED_WS/src"
-          cp -a src/. "$SHARED_WS/src/"
+          git clone --depth 1 "https://github.com/${{ github.repository }}.git" "$SHARED_WS/src"
+          git -C "$SHARED_WS/src" fetch --depth 1 origin "${{ github.sha }}"
+          git -C "$SHARED_WS/src" checkout --detach "${{ github.sha }}"
 
       - name: Verify shared workspace contents
         run: |
           echo "=== Shared workspace after checkout ==="
           find "$SHARED_WS" -maxdepth 3 | head -40
 
-  # ── 2a. LINT (parallel with test) ─────────────────────────────────────────
+  # â”€â”€ 2a. LINT (parallel with test) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   lint:
     runs-on: minikube-k8s
-    container:
-      image: node:20-bullseye
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -65,11 +57,9 @@ jobs:
           echo "LINT_PASSED=true" > "$SHARED_WS/lint-result.txt"
           echo "Lint complete."
 
-  # ── 2b. TEST (parallel with lint) ─────────────────────────────────────────
+  # â”€â”€ 2b. TEST (parallel with lint) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   test:
     runs-on: minikube-k8s
-    container:
-      image: node:20-bullseye
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -83,11 +73,9 @@ jobs:
           echo "TEST_PASSED=true" > "$SHARED_WS/test-result.txt"
           echo "Tests complete."
 
-  # ── 3. BUILD (sequential after lint + test) ────────────────────────────────
+  # â”€â”€ 3. BUILD (sequential after lint + test) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   build:
     runs-on: minikube-k8s
-    container:
-      image: node:20-bullseye
     needs: [lint, test]
     steps:
       - name: Verify results from parallel jobs
@@ -96,19 +84,27 @@ jobs:
           cat "$SHARED_WS/lint-result.txt"
           cat "$SHARED_WS/test-result.txt"
 
-      - name: Build frontend from shared source
+      - name: Install buildctl client
         run: |
-          echo "Building Docker image from $SHARED_WS/src/frontend/ ..."
-          ls "$SHARED_WS/src/frontend/"
-          echo "Docker daemon is not available on Fargate (DinD is banned)."
-          echo "Mocking build completion for EFS shared-workspace demo!"
+          BK_VERSION="v0.23.2"
+          mkdir -p "$RUNNER_TEMP/buildkit/bin"
+          curl -sSL "https://github.com/moby/buildkit/releases/download/${BK_VERSION}/buildkit-${BK_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/buildkit" bin/buildctl
+          echo "$RUNNER_TEMP/buildkit/bin" >> "$GITHUB_PATH"
+
+      - name: Build frontend with remote BuildKit daemon
+        run: |
+          echo "Building image from $SHARED_WS/src/frontend with BuildKit..."
+          buildctl --addr tcp://buildkitd.arc-runners.svc.cluster.local:1234 build \
+            --frontend dockerfile.v0 \
+            --local context="$SHARED_WS/src/frontend" \
+            --local dockerfile="$SHARED_WS/src/frontend" \
+            --output type=oci,dest="$SHARED_WS/frontend-image.tar"
           echo "BUILD_COMPLETE=true" > "$SHARED_WS/build-result.txt"
 
-  # ── 4. CLEANUP (always runs) ───────────────────────────────────────────────
+  # â”€â”€ 4. CLEANUP (always runs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   cleanup:
     runs-on: minikube-k8s
-    container:
-      image: node:20-bullseye
     needs: [build]
     if: always()   # run even if build failed
     steps:
@@ -123,5 +119,5 @@ jobs:
         run: |
           rm -rf "$SHARED_WS"
           echo "Cleaned up $SHARED_WS"
-          echo "=== Remaining /shared entries (other runs) ==="
-          ls /shared/ || echo "(shared volume empty)"
+          echo "=== Remaining /app/workspace entries (other runs) ==="
+          ls /app/workspace/ || echo "(shared volume empty)"
