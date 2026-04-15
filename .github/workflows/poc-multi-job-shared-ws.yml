@@ -19,6 +19,8 @@ jobs:
   # â”€â”€ 1. PREPARE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   prepare:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     steps:
       - name: Create shared workspace slice for this run
         run: |
@@ -41,6 +43,8 @@ jobs:
   # â”€â”€ 2a. LINT (parallel with test) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   lint:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -60,6 +64,8 @@ jobs:
   # â”€â”€ 2b. TEST (parallel with lint) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   test:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: prepare
     steps:
       - name: Read shared workspace (no re-checkout needed)
@@ -76,6 +82,8 @@ jobs:
   # â”€â”€ 3. BUILD (sequential after lint + test) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   build:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: [lint, test]
     steps:
       - name: Verify results from parallel jobs
@@ -105,6 +113,8 @@ jobs:
   # â”€â”€ 4. CLEANUP (always runs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   cleanup:
     runs-on: minikube-k8s
+    container:
+      image: node:20-bullseye
     needs: [build]
     if: always()   # run even if build failed
     steps:
