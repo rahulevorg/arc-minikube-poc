@@ -1,0 +1,55 @@
+githubConfigUrl: "https://github.com/rahulevorg/arc-minikube-poc"
+githubConfigSecret: "arc-github-auth"
+
+runnerScaleSetName: "minikube-k8s"
+runnerScaleSetLabels:
+  - self-hosted
+  - linux
+  - minikube
+  - k8s-mode
+
+minRunners: 1
+maxRunners: 10
+
+containerMode:
+  type: "kubernetes"
+  kubernetesModeWorkVolumeClaim:
+    accessModes: ["ReadWriteOnce"]
+    storageClassName: "standard"
+    resources:
+      requests:
+        storage: 5Gi
+
+template:
+  spec:
+    serviceAccountName: arc-k8s-hooks
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        command: ["/home/runner/run.sh"]
+        env:
+          - name: ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE
+            value: /hook-extensions/content
+        resources:
+          # Keep Fargate costs to an absolute minimum (0.25 vCPU, 0.5GB RAM)
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        volumeMounts:
+          - name: rwx-shared
+            mountPath: /shared
+          - name: hook-extensions
+            mountPath: /hook-extensions
+            readOnly: true
+    volumes:
+      - name: hook-extensions
+        configMap:
+          name: hook-extension-buildkit
+          items:
+            - key: content
+              path: content
+      # Cluster-wide RWX volume (hostPath backed) shared by all runner pods.
+      # Jobs address their run's slice via /shared/$GITHUB_RUN_ID/.
+      - name: rwx-shared
+        persistentVolumeClaim:
+          claimName: runner-rwx-shared-pvc
