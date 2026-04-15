@@ -55,3 +55,18 @@ jobs:
           sed -i "s#image: .*#image: ${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }}#" frontend/k8s-manifest.yaml
           kubectl apply -f frontend/k8s-manifest.yaml
 
+  cleanup-pods:
+    runs-on: minikube-k8s
+    needs: [build-and-push, deploy-to-minikube]
+    if: always()
+    container:
+      image: bitnami/kubectl:latest
+    steps:
+      - name: Auto cleanup completed and failed pods
+        run: |
+          # Keep active workloads; only prune terminal pods.
+          kubectl delete pod -n default --field-selector=status.phase=Succeeded --ignore-not-found=true
+          kubectl delete pod -n default --field-selector=status.phase=Failed --ignore-not-found=true
+          kubectl delete pod -n arc-runners --field-selector=status.phase=Succeeded --ignore-not-found=true
+          kubectl delete pod -n arc-runners --field-selector=status.phase=Failed --ignore-not-found=true
+
