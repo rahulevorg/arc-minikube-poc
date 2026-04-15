@@ -28,8 +28,8 @@ jobs:
           CACHE_REF: ghcr.io/rahulevorg/poc-image:buildcache
         run: |
           # A dummy dockerfile generation for quick demonstration
-          echo "FROM alpine:latest" > Dockerfile
-          echo "RUN echo 'Hello from BuildKit!' > /hello.txt" >> Dockerfile
+          echo "FROM alpine:latest" > "$SHARED_WS/src/Dockerfile"
+          echo "RUN echo 'Hello from BuildKit!' > /hello.txt" >> "$SHARED_WS/src/Dockerfile"
           
           buildctl --addr tcp://buildkitd.arc-runners.svc.cluster.local:1234 build \
             --frontend dockerfile.v0 \
