@@ -29,10 +29,15 @@ jobs:
             > "$SHARED_WS/run-info.txt"
           echo "Workspace created at $SHARED_WS"
 
-      - name: Checkout into shared workspace (single clone for all jobs)
+      - name: Checkout into runner workspace
         uses: actions/checkout@v4
         with:
-          path: ${{ env.SHARED_WS }}/src
+          path: src
+
+      - name: Copy checkout into shared workspace slice
+        run: |
+          mkdir -p "$SHARED_WS/src"
+          cp -a src/. "$SHARED_WS/src/"
 
       - name: Verify shared workspace contents
         run: |
