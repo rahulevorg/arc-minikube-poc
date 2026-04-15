@@ -37,7 +37,7 @@ jobs:
             --frontend dockerfile.v0 \
             --local context=frontend \
             --local dockerfile=frontend \
-            --output type=image,name=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }},docker.io/${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:latest,push=true
+            --output type=image,name=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/arc-poc-frontend:${{ github.sha }},push=true
 
   deploy-to-minikube:
     runs-on: minikube-k8s
