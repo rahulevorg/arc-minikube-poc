@@ -6,13 +6,21 @@ permissions:
   contents: read
   packages: write
 
+env:
+  SHARED_WS: /app/workspace/${{ github.run_id }}
+
 jobs:
   buildkit_build:
     runs-on: minikube-k8s
     container:
       image: moby/buildkit:latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Clone repository into shared workspace
+        run: |
+          mkdir -p "$SHARED_WS"
+          git clone --depth 1 "https://github.com/${{ github.repository }}.git" "$SHARED_WS/src"
+          git -C "$SHARED_WS/src" fetch --depth 1 origin "${{ github.sha }}"
+          git -C "$SHARED_WS/src" checkout --detach "${{ github.sha }}"
 
       - name: Build with buildctl (push + inline cache)
         env:
@@ -25,8 +33,8 @@ jobs:
           
           buildctl --addr tcp://buildkitd.arc-runners.svc.cluster.local:1234 build \
             --frontend dockerfile.v0 \
-            --local context="${GITHUB_WORKSPACE}" \
-            --local dockerfile="${GITHUB_WORKSPACE}" \
+            --local context="$SHARED_WS/src" \
+            --local dockerfile="$SHARED_WS/src" \
             --output type=image,name="${DEST}",push=true \
             --export-cache type=inline \
             --import-cache type=registry,ref="${CACHE_REF}"
